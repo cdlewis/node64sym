@@ -25,18 +25,7 @@ const { binary, signatures, sigIndex, sigCount, offsets, thorough } =
 for (let i = 0; i < sigCount; i++) {
   let symbol = new Symbol(signatures[sigIndex + i]);
 
-  if (!thorough) {
-    for (var j = 0; j < offsets.length; j++) {
-      if (testSymbol(binary, offsets[j], symbol)) {
-        parentPort.postMessage({
-          status: "result",
-          name: symbol.name,
-          offset: offsets[j],
-        });
-        break;
-      }
-    }
-  } else {
+  if (thorough) {
     for (
       var offset = 0;
       offset < binary.byteLength - symbol.size;
@@ -48,6 +37,19 @@ for (let i = 0; i < sigCount; i++) {
           name: symbol.name,
           offset: offset,
         });
+
+        break;
+      }
+    }
+  } else {
+    for (let j = 0; j < offsets.length; j++) {
+      if (testSymbol(binary, offsets[j], symbol)) {
+        parentPort.postMessage({
+          status: "result",
+          name: symbol.name,
+          offset: offsets[j],
+        });
+        
         break;
       }
     }
@@ -88,16 +90,17 @@ function testSymbol(binary, offset, symbol) {
     return crcB.result == symbol.crcB;
   }
 
-  var relocs = []; // flattened relocs array
-  symbol.relocs.forEach((reloc) => {
-    reloc[REL_OFFSETS].forEach((offset) => {
+  // flattened relocs array
+  const relocs = [];
+  for (let reloc of symbol.relocs) {
+    for (let offset of reloc[REL_OFFSETS]) {
       relocs.push({
         type: reloc[REL_TYPE],
         name: reloc[REL_NAME],
         offset: offset,
       });
-    });
-  });
+    }
+  }
   relocs.sort((a, b) => a.offset - b.offset);
 
   let nReloc = 0;
@@ -107,14 +110,14 @@ function testSymbol(binary, offset, symbol) {
   while (fnOffset < crcA_limit && nReloc < relocs.length) {
     if (fnOffset < relocs[nReloc].offset) {
       // read up to relocated op or crcA limit
-      var start = offset + fnOffset;
-      var length = Math.min(relocs[nReloc].offset, crcA_limit) - fnOffset;
+      const start = offset + fnOffset;
+      const length = Math.min(relocs[nReloc].offset, crcA_limit) - fnOffset;
       crcA.read(binary, start, length);
       crcB.read(binary, start, length);
       fnOffset += length;
     } else if (fnOffset == relocs[nReloc].offset) {
       // read stripped relocated op
-      var opcode = readStrippedOpcode(
+      const opcode = readStrippedOpcode(
         binary,
         offset + fnOffset,
         relocs[nReloc].type
@@ -127,7 +130,7 @@ function testSymbol(binary, offset, symbol) {
   }
 
   if (fnOffset < crcA_limit) {
-    var length = crcA_limit - fnOffset;
+    const length = crcA_limit - fnOffset;
     crcA.read(binary, offset + fnOffset, length);
     crcB.read(binary, offset + fnOffset, length);
     fnOffset += length;
@@ -144,7 +147,7 @@ function testSymbol(binary, offset, symbol) {
       fnOffset = relocs[nReloc].offset;
     } else if (fnOffset == relocs[nReloc].offset) {
       // strip and read relocated op
-      var opcode = readStrippedOpcode(
+      const opcode = readStrippedOpcode(
         binary,
         offset + fnOffset,
         relocs[nReloc].type
@@ -163,10 +166,11 @@ function testSymbol(binary, offset, symbol) {
   if (crcB.result == symbol.crcB) {
     const dv = new DataView(binary.buffer, offset);
 
-    for (var i = 0; i < relocs.length; i++) {
+    for (let i = 0; i < relocs.length; i++) {
       if (relocs[i].type == "targ26") {
-        var jal = dv.getUint32(relocs[i].offset);
-        var target = 0x80000000 + (jal & 0x3ffffff) * 4;
+        const jal = dv.getUint32(relocs[i].offset);
+        const target = 0x80000000 + (jal & 0x3ffffff) * 4;
+
         parentPort.postMessage({
           status: "reloc_result",
           name: relocs[i].name,
@@ -177,9 +181,10 @@ function testSymbol(binary, offset, symbol) {
         relocs[i - 1].type == "hi16" &&
         relocs[i].name == relocs[i - 1].name
       ) {
-        var hi16 = dv.getUint16(relocs[i - 1].offset + 2);
-        var lo16 = dv.getInt16(relocs[i - 0].offset + 2);
-        var address = ((hi16 << 16) + lo16) >>> 0;
+        const hi16 = dv.getUint16(relocs[i - 1].offset + 2);
+        const lo16 = dv.getInt16(relocs[i - 0].offset + 2);
+        const address = ((hi16 << 16) + lo16) >>> 0;
+
         parentPort.postMessage({
           status: "reloc_result",
           name: relocs[i].name,
@@ -187,6 +192,7 @@ function testSymbol(binary, offset, symbol) {
         });
       }
     }
+
     return true;
   }
 }

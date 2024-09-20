@@ -21,6 +21,27 @@ class N64Sym {
     this.bootcode = 0;
     this.bThoroughScan = true;
     this.progressBar = new ProgressBar(signatures.length);
+    this.dispatch = {
+      result: (message) => {
+        this.addResult({ name: message.name, offset: message.offset });
+      },
+      reloc_result: (message) => {
+        this.addResult({
+          name: message.name,
+          address: message.address,
+        });
+      },
+      progress: () => {
+        this.numSignaturesScanned++;
+        this.progressBar.update(this.numSignaturesScanned);
+      },
+      done: () => {
+        this.numActiveWorkers--;
+        if (this.numActiveWorkers == 0) {
+          this.callback(this.results);
+        }
+      },
+    };
   }
 
   loadFile(filePath) {
@@ -33,31 +54,7 @@ class N64Sym {
     const worker = new Worker("./worker.js", { workerData });
 
     worker.on("message", (message) => {
-      const dispatch = {
-        result: () => {
-          this.addResult({ name: message["name"], offset: message["offset"] });
-        },
-        reloc_result: () => {
-          this.addResult({
-            name: message["name"],
-            address: message["address"],
-          });
-        },
-        progress: () => {
-          this.numSignaturesScanned++;
-          this.progressBar.update(this.numSignaturesScanned);
-        },
-        done: () => {
-          this.numActiveWorkers--;
-          if (this.numActiveWorkers == 0) {
-            console.log("Done!!", this.results);
-          }
-        },
-      };
-
-      if (message["status"] in dispatch) {
-        dispatch[message["status"]]();
-      }
+      this.dispatch[message.status](message);
     });
 
     worker.on("error", (error) => {
@@ -145,13 +142,14 @@ class N64Sym {
     this.likelyFunctionOffsets = Array.from(offsets);
   }
 
-  scan(filePath) {
+  scan(filePath, callback) {
     this.loadFile(filePath);
 
     this.results = [];
     this.likelyFunctionOffsets = [];
     this.numSignaturesScanned = 0;
     this.bRom = false;
+    this.callback = callback;
 
     this.romEndianCheck();
     this.locateEntryPoint();
